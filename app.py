@@ -729,6 +729,8 @@ def render_calendar_optimizer(df):
         # Show hours as table
         if 'error' not in best_hours:
             hourly_stats = best_hours.get('hourly_stats', {})
+            timezone_display = best_hours.get('timezone_display', 'UTC (Local Time)')
+            
             if hourly_stats:
                 hours_data = []
                 for hour in sorted(hourly_stats.get('avg_views', {}).keys()):
@@ -740,8 +742,12 @@ def render_calendar_optimizer(df):
                     })
                 hours_df = pd.DataFrame(hours_data)
                 st.markdown("**⏰ Performance by Hour**")
+                st.caption(f"🌍 Timezone: {timezone_display}")
                 st.dataframe(hours_df, use_container_width=True, hide_index=True)
                 AnalyticsExplainer.render_info_button("performance_by_hour", expanded=False)
+                
+                # Timezone info box
+                st.info("📍 **Timezone Note:** These times are based on your channel's upload history. If you have a global audience, consider your target viewers' local time when scheduling.")
                 
                 col1, col2 = st.columns(2)
                 with col1:

@@ -18,9 +18,46 @@ from typing import Dict, List, Tuple
 class CalendarOptimizer:
     """Optimize content calendar based on historical performance."""
     
-    def __init__(self, df: pd.DataFrame):
-        """Initialize with video data."""
+    def __init__(self, df: pd.DataFrame, timezone: str = 'UTC'):
+        """Initialize with video data and timezone."""
         self.df = df.copy()
+        self.timezone = timezone
+        self._detect_timezone()
+    
+    def _detect_timezone(self):
+        """Detect timezone from data or use default."""
+        # Try to get timezone from published_at if available
+        if 'published_at' in self.df.columns and len(self.df) > 0:
+            try:
+                # Check if timezone info exists in the data
+                sample_dt = pd.to_datetime(self.df['published_at'].iloc[0])
+                if sample_dt.tzinfo is not None:
+                    self.timezone = str(sample_dt.tzinfo)
+                else:
+                    # Default to UTC if no timezone info
+                    self.timezone = 'UTC'
+            except:
+                self.timezone = 'UTC'
+    
+    def get_timezone_display(self) -> str:
+        """Get formatted timezone display string."""
+        timezone_map = {
+            'UTC': 'UTC (Coordinated Universal Time)',
+            'US/Eastern': 'ET (Eastern Time - US)',
+            'US/Central': 'CT (Central Time - US)',
+            'US/Mountain': 'MT (Mountain Time - US)',
+            'US/Pacific': 'PT (Pacific Time - US)',
+            'Europe/London': 'GMT/BST (UK Time)',
+            'Europe/Paris': 'CET/CEST (Central European Time)',
+            'Asia/Tokyo': 'JST (Japan Standard Time)',
+            'Asia/Singapore': 'SGT (Singapore Time)',
+            'Asia/Dubai': 'GST (Gulf Standard Time)',
+            'Australia/Sydney': 'AEST (Australian Eastern Time)',
+            'Asia/Kolkata': 'IST (India Standard Time)',
+            'Asia/Manila': 'PHT (Philippine Time)',
+            'America/Sao_Paulo': 'BRT (Brasília Time)',
+        }
+        return timezone_map.get(self.timezone, f'{self.timezone} (Local Time)')
     
     def analyze_best_days(self) -> Dict:
         """Analyze best days of the week for posting."""
@@ -59,7 +96,7 @@ class CalendarOptimizer:
         }
     
     def analyze_best_hours(self) -> Dict:
-        """Analyze best hours for posting."""
+        """Analyze best hours for posting with timezone awareness."""
         if self.df.empty:
             return {'error': 'No data available'}
         
@@ -89,6 +126,8 @@ class CalendarOptimizer:
             'best_hour_for_views': best_hour_views,
             'best_hour_for_engagement': best_hour_engagement,
             'top_3_hours': top_hours,
+            'timezone': self.timezone,
+            'timezone_display': self.get_timezone_display(),
             'recommendation': self._get_hour_recommendation(best_hour_views, top_hours)
         }
     
@@ -104,11 +143,12 @@ class CalendarOptimizer:
             return f"{hour-12}:00 PM"
     
     def _get_hour_recommendation(self, best_hour: int, top_hours: List[int]) -> str:
-        """Get hour recommendation with AM/PM format."""
+        """Get hour recommendation with AM/PM format and timezone."""
         best_formatted = self._format_hour_ampm(best_hour)
         top_formatted = [self._format_hour_ampm(h) for h in top_hours]
+        timezone_display = self.get_timezone_display()
         
-        return f"Best time: {best_formatted}. Top 3 times: {', '.join(top_formatted)}"
+        return f"Best time: {best_formatted} ({timezone_display}). Top 3 times: {', '.join(top_formatted)}"
     
     def _get_day_recommendation(self, by_day: pd.DataFrame) -> str:
         """Get day recommendation based on analysis."""
@@ -336,6 +376,8 @@ class CalendarOptimizer:
                         'day': day,
                         'time': self._format_hour_ampm(best_hour),
                         'time_24h': best_hour,
+                        'timezone': self.timezone,
+                        'timezone_display': self.get_timezone_display(),
                         'content_type': content_info['type'],
                         'content_description': content_info['description'],
                         'content_reason': content_info['reason'],
@@ -410,13 +452,15 @@ class CalendarOptimizer:
             'best_hours': self.analyze_best_hours(),
             'title_patterns': self._get_best_title_patterns(),
             'upload_frequency': self.get_upload_frequency_analysis(),
-            'seasonal_patterns': self.analyze_seasonal_patterns()
+            'seasonal_patterns': self.analyze_seasonal_patterns(),
+            'timezone': self.timezone,
+            'timezone_display': self.get_timezone_display()
         }
 
 
-def optimize_calendar(df: pd.DataFrame) -> CalendarOptimizer:
-    """Create CalendarOptimizer instance."""
-    return CalendarOptimizer(df)
+def optimize_calendar(df: pd.DataFrame, timezone: str = 'UTC') -> CalendarOptimizer:
+    """Create CalendarOptimizer instance with timezone support."""
+    return CalendarOptimizer(df, timezone)
 
 
 # Test Calendar Optimizer
@@ -450,11 +494,13 @@ if __name__ == "__main__":
         'hour': [hours[random.randint(0, len(hours)-1)] for _ in range(50)]
     })
     
-    optimizer = CalendarOptimizer(sample_data)
+    optimizer = CalendarOptimizer(sample_data, timezone='US/Eastern')
     
     print("=" * 60)
     print("ENHANCED CALENDAR OPTIMIZER TEST")
     print("=" * 60)
+    
+    print(f"\n🌍 Timezone: {optimizer.get_timezone_display()}")
     
     print("\n📅 Best Days Analysis:")
     day_analysis = optimizer.analyze_best_days()
@@ -463,6 +509,7 @@ if __name__ == "__main__":
     
     print("\n⏰ Best Hours Analysis:")
     hour_analysis = optimizer.analyze_best_hours()
+    print(f"  Timezone: {hour_analysis.get('timezone_display')}")
     print(f"  {hour_analysis.get('recommendation')}")
     
     print("\n📝 Title Patterns:")
@@ -474,8 +521,9 @@ if __name__ == "__main__":
     calendar = optimizer.generate_enhanced_calendar(weeks=1, videos_per_week=3)
     for item in calendar:
         print(f"\n  📆 {item['date_formatted']} ({item['day']})")
-        print(f"     ⏰ Time: {item['time']}")
+        print(f"     ⏰ Time: {item['time']} ({item['timezone_display']})")
         print(f"     🎬 Content: {item['content_type']}")
         print(f"     📝 Description: {item['content_description']}")
         print(f"     💡 Example: {item['content_example']}")
         print(f"     ✏️ Title: {item['title_suggestion']}")
+
