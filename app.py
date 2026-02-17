@@ -915,34 +915,6 @@ def render_pattern_detection(df):
     except Exception as e:
         st.warning("Could not analyze title patterns")
     
-    # Duration patterns
-    st.subheader("⏱️ Video Duration Patterns")
-    st.caption("How video length affects performance")
-    
-    try:
-        duration_patterns = detector.detect_duration_patterns()
-        if duration_patterns and 'error' not in duration_patterns:
-            duration_data = []
-            for bucket, stats in duration_patterns.items():
-                duration_data.append({
-                    'Duration': bucket,
-                    'Avg Views': stats.get('avg_views', 0),
-                    'Video Count': stats.get('count', 0)
-                })
-            
-            duration_df = pd.DataFrame(duration_data)
-            
-            fig = px.bar(duration_df, x='Duration', y='Avg Views',
-                        title='Average Views by Video Duration ⏱️',
-                        color='Avg Views', color_continuous_scale='Blues')
-            fig.update_layout(paper_bgcolor='#1e2130', plot_bgcolor='#1e2130', font_color='white')
-            st.plotly_chart(fig, use_container_width=True)
-            AnalyticsExplainer.render_info_button("duration_patterns", expanded=False)
-        else:
-            st.info("Duration pattern data not available (requires video duration data)")
-    except Exception as e:
-        st.warning("Could not analyze duration patterns")
-    
     # Upload consistency
     st.subheader("📅 Upload Consistency")
     
@@ -1221,12 +1193,12 @@ def render_chatbot(df):
     
     # Welcome message
     st.markdown("""
-    Ask me anything about your channel. Every answer includes a **To grow:** tip so you know what to do next.
+    Ask me anything about your channel. Every answer includes **how to grow** so you know what to do next.
     """)
     
     # Example questions
     st.info("""
-    **Example questions (each answer includes a growth tip):**
+    **Example questions (each answer includes how to grow):**
     - "When should I post?" / "Best day to post?"
     - "What content works best?" / "Which videos performed best?"
     - "Give me recommendations" / "How can I improve?"
