@@ -204,13 +204,6 @@ def main():
     st.title("📊 YouTube Analytics Dashboard")
     st.caption("Use these metrics to see what works and improve your channel growth—post when it counts, double down on what performs, and test titles and thumbnails.")
     
-    # Copyright notice
-    st.markdown("""
-    <div style="text-align: center; color: #666; font-size: 12px; margin-top: 10px;">
-        © 2024 Akshay Kasimahanthi. All Rights Reserved.
-    </div>
-    """, unsafe_allow_html=True)
-    
     # Initialize database
     try:
         init_database()
@@ -303,6 +296,14 @@ def main():
     # If no data, show message
     if df.empty:
         st.info("👈 Enter a YouTube channel in the sidebar to get started!")
+        
+        # Copyright notice at bottom of homepage
+        st.markdown("---")
+        st.markdown("""
+        <div style="text-align: center; color: #666; font-size: 12px; padding: 20px;">
+            © 2026 Akshay Kasimahanthi. All Rights Reserved.
+        </div>
+        """, unsafe_allow_html=True)
         return
     
     # Prepare current_df with required columns
