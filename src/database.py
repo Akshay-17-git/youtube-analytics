@@ -1,6 +1,6 @@
 """
 Database module for YouTube Analytics.
-Handles MySQL database operations using SQLAlchemy.
+Handles MySQL/SQLite database operations using SQLAlchemy.
 """
 import sys
 import os
@@ -8,16 +8,24 @@ import os
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, Text, Index, text
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
 from datetime import datetime
 import pandas as pd
 
+# Try to import SQLAlchemy, but make it optional
+try:
+    from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, Text, Index, text
+    from sqlalchemy.ext.declarative import declarative_base
+    from sqlalchemy.orm import sessionmaker
+    SQLALCHEMY_AVAILABLE = True
+    Base = declarative_base()
+except ImportError:
+    SQLALCHEMY_AVAILABLE = False
+    Base = None
+
 from config.settings import settings
 
-# Create declarative base
-Base = declarative_base()
+# Global flag for database availability
+_db_available = None
 
 
 class VideoMetrics(Base):
@@ -63,48 +71,105 @@ class ChannelStats(Base):
 
 def get_engine():
     """Create and return SQLAlchemy engine."""
-    engine = create_engine(
-        settings.get_database_url(),
-        pool_pre_ping=True,
-        pool_recycle=3600,
-        echo=False
-    )
-    return engine
+    if not SQLALCHEMY_AVAILABLE:
+        return None
+    
+    # Use SQLite as fallback for cloud deployment
+    db_url = settings.get_database_url()
+    
+    # If MySQL connection fails, fallback to SQLite
+    try:
+        engine = create_engine(
+            db_url,
+            pool_pre_ping=True,
+            pool_recycle=3600,
+            echo=False
+        )
+        # Test connection
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        return engine
+    except Exception as e:
+        # Fallback to SQLite
+        sqlite_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 'youtube_analytics.db')
+        os.makedirs(os.path.dirname(sqlite_path), exist_ok=True)
+        sqlite_url = f"sqlite:///{sqlite_path}"
+        engine = create_engine(sqlite_url, echo=False)
+        return engine
 
 
 def get_session():
     """Create and return a new database session."""
     engine = get_engine()
+    if engine is None:
+        return None
     Session = sessionmaker(bind=engine)
     return Session()
 
 
 def init_database():
     """Initialize database: create tables if they don't exist."""
+    if not SQLALCHEMY_AVAILABLE:
+        print("SQLAlchemy not available, skipping database initialization")
+        return
+    
     print("Initializing database...")
     
-    # First, connect without database to create it if needed
-    temp_url = f"mysql+pymysql://{settings.DB_USER}:{settings.DB_PASSWORD}@{settings.DB_HOST}:{settings.DB_PORT}"
-    temp_engine = create_engine(temp_url, pool_pre_ping=True)
-    
-    # Create database if not exists
-    with temp_engine.connect() as conn:
-        conn.execute(text(f"CREATE DATABASE IF NOT EXISTS {settings.DB_NAME}"))
-        conn.commit()
-    temp_engine.dispose()
-    
-    # Now create tables
-    engine = get_engine()
-    Base.metadata.create_all(engine)
-    engine.dispose()
-    
-    print(f"Database '{settings.DB_NAME}' initialized successfully!")
+    try:
+        engine = get_engine()
+        if engine is None:
+            print("Could not create database engine")
+            return
+            
+        # Check if it's SQLite (no need to create database)
+        db_url = str(engine.url)
+        if 'sqlite' in db_url:
+            # SQLite - just create tables
+            Base.metadata.create_all(engine)
+            engine.dispose()
+            print(f"SQLite database initialized successfully!")
+            return
+        
+        # MySQL - need to create database first
+        temp_url = f"mysql+pymysql://{settings.DB_USER}:{settings.DB_PASSWORD}@{settings.DB_HOST}:{settings.DB_PORT}"
+        temp_engine = create_engine(temp_url, pool_pre_ping=True)
+        
+        # Create database if not exists
+        with temp_engine.connect() as conn:
+            conn.execute(text(f"CREATE DATABASE IF NOT EXISTS {settings.DB_NAME}"))
+            conn.commit()
+        temp_engine.dispose()
+        
+        # Now create tables
+        Base.metadata.create_all(engine)
+        engine.dispose()
+        
+        print(f"Database '{settings.DB_NAME}' initialized successfully!")
+    except Exception as e:
+        print(f"Database initialization failed: {e}")
+        # Try SQLite fallback
+        try:
+            sqlite_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 'youtube_analytics.db')
+            os.makedirs(os.path.dirname(sqlite_path), exist_ok=True)
+            sqlite_url = f"sqlite:///{sqlite_path}"
+            engine = create_engine(sqlite_url, echo=False)
+            Base.metadata.create_all(engine)
+            engine.dispose()
+            print(f"SQLite fallback database initialized successfully!")
+        except Exception as e2:
+            print(f"SQLite fallback also failed: {e2}")
 
 
 def test_connection():
     """Test database connection."""
+    if not SQLALCHEMY_AVAILABLE:
+        print("SQLAlchemy not available")
+        return False
+    
     try:
         engine = get_engine()
+        if engine is None:
+            return False
         with engine.connect() as conn:
             result = conn.execute(text("SELECT 1"))
             print("Database connection successful!")
@@ -116,7 +181,15 @@ def test_connection():
 
 def save_video_metrics(data: pd.DataFrame):
     """Save video metrics to database."""
+    if not SQLALCHEMY_AVAILABLE:
+        print("SQLAlchemy not available, skipping save")
+        return
+    
     session = get_session()
+    if session is None:
+        print("Could not create database session")
+        return
+    
     try:
         for _, row in data.iterrows():
             # Check if video already exists
@@ -151,14 +224,20 @@ def save_video_metrics(data: pd.DataFrame):
     except Exception as e:
         session.rollback()
         print(f"Error saving video metrics: {e}")
-        raise
+        # Don't raise - just log the error
     finally:
         session.close()
 
 
 def get_all_video_metrics() -> pd.DataFrame:
     """Get all video metrics from database."""
+    if not SQLALCHEMY_AVAILABLE:
+        return pd.DataFrame()
+    
     session = get_session()
+    if session is None:
+        return pd.DataFrame()
+    
     try:
         videos = session.query(VideoMetrics).order_by(VideoMetrics.published_at.desc()).all()
         
@@ -180,13 +259,22 @@ def get_all_video_metrics() -> pd.DataFrame:
             })
         
         return pd.DataFrame(data)
+    except Exception as e:
+        print(f"Error getting video metrics: {e}")
+        return pd.DataFrame()
     finally:
         session.close()
 
 
 def get_video_metrics_by_date_range(start_date: datetime, end_date: datetime) -> pd.DataFrame:
     """Get video metrics within a date range."""
+    if not SQLALCHEMY_AVAILABLE:
+        return pd.DataFrame()
+    
     session = get_session()
+    if session is None:
+        return pd.DataFrame()
+    
     try:
         videos = session.query(VideoMetrics).filter(
             VideoMetrics.published_at >= start_date,
@@ -211,13 +299,22 @@ def get_video_metrics_by_date_range(start_date: datetime, end_date: datetime) ->
             })
         
         return pd.DataFrame(data)
+    except Exception as e:
+        print(f"Error getting video metrics by date range: {e}")
+        return pd.DataFrame()
     finally:
         session.close()
 
 
 def delete_video_metrics(video_id: str):
     """Delete a video metric record."""
+    if not SQLALCHEMY_AVAILABLE:
+        return
+    
     session = get_session()
+    if session is None:
+        return
+    
     try:
         video = session.query(VideoMetrics).filter_by(video_id=video_id).first()
         if video:
